@@ -260,8 +260,8 @@ pub fn default_columns() -> Vec<Column> {
             order: 0,
         },
         Column {
-            slug: "doing".to_string(),
-            title: "Doing".to_string(),
+                    slug: "in-progress".to_string(),
+                    title: "In Progress".to_string(),
             dispatch_enabled: true,
             dispatch: Some(DispatchConfig {
                 agent: "codex".to_string(),
@@ -272,14 +272,26 @@ pub fn default_columns() -> Vec<Column> {
             order: 1,
         },
         Column {
-            slug: "done".to_string(),
-            title: "Done".to_string(),
-            dispatch_enabled: false,
-            dispatch: None,
-            order: 2,
-        },
-    ]
-}
+                    slug: "code-review".to_string(),
+                    title: "Code Review".to_string(),
+                    dispatch_enabled: true,
+                    dispatch: Some(DispatchConfig {
+                        agent: "codex".to_string(),
+                        prompt: None,
+                        split_direction: None,
+                        pre_command: None,
+                    }),
+                    order: 2,
+                },
+                Column {
+                    slug: "done".to_string(),
+                    title: "Done".to_string(),
+                    dispatch_enabled: false,
+                    dispatch: None,
+                    order: 3,
+                },
+            ]
+        }
 
 /// Resolve the state directory, honoring `HERDR_PLUGIN_STATE_DIR` when set and
 /// falling back to the platform local-data directory otherwise.
@@ -437,10 +449,12 @@ mod tests {
             order,
             pane_id: Some(format!("pane-{id}")),
             agent_name: Some("agent".to_string()),
-                        description: String::new(),
-                        created_at: 1000,
-                        updated_at: 2000,
-                    }
+                                    target_agent: None,
+                                    pre_command: None,
+                                    description: String::new(),
+                                    created_at: 1000,
+                                    updated_at: 2000,
+                                }
     }
 
     #[test]
@@ -634,12 +648,14 @@ mod tests {
 
         #[test]
         fn adjacent_column_matches_board_order() {
-            let board = BoardState::default(); // todo, doing, done
+            let board = BoardState::default(); // todo, in-progress, code-review, done
             assert_eq!(board.adjacent_column("todo", -1), None);
-            assert_eq!(board.adjacent_column("todo", 1).as_deref(), Some("doing"));
-            assert_eq!(board.adjacent_column("doing", 1).as_deref(), Some("done"));
-            assert_eq!(board.adjacent_column("done", 1), None);
-            assert_eq!(board.adjacent_column("done", -1).as_deref(), Some("doing"));
+                        assert_eq!(board.adjacent_column("todo", 1).as_deref(), Some("in-progress"));
+                        assert_eq!(board.adjacent_column("in-progress", -1).as_deref(), Some("todo"));
+                        assert_eq!(board.adjacent_column("in-progress", 1).as_deref(), Some("code-review"));
+                        assert_eq!(board.adjacent_column("code-review", 1).as_deref(), Some("done"));
+                        assert_eq!(board.adjacent_column("done", 1), None);
+                        assert_eq!(board.adjacent_column("done", -1).as_deref(), Some("code-review"));
         }
 
                 #[test]

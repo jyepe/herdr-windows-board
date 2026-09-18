@@ -47,7 +47,10 @@ pub enum CardCommand {
         /// Optional target agent to dispatch (overrides the column's default).
         #[arg(long)]
         target_agent: Option<String>,
-    },
+                /// Optional command to run in the pane before starting the agent.
+                #[arg(long)]
+                pre_command: Option<String>,
+            },
         /// Add a card from the currently focused/invoking pane.
         AddFromPane {
             /// Optional card title; defaults to the pane's title (or cwd).

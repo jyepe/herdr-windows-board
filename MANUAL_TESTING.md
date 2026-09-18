@@ -33,7 +33,7 @@ The build must complete with no errors. Re-link if the binary path changed.
 
 Trigger the configured `open-board` action (see `herdr-plugin.toml`), or run
 `cargo run -- open`. The board TUI (title "Windows Board") should appear with
-the default columns **To Do / Doing / Done**.
+the default columns **To Do / In Progress / Code Review / Done**.
 
 - Press `q` to quit and return to a usable terminal (no garbled screen, cursor
   visible, alternate screen left).
@@ -82,10 +82,10 @@ the default columns **To Do / Doing / Done**.
 
 ## 10. Dispatch-enabled columns start an agent
 
-Default board: **To Do** and **Doing** are dispatch-enabled (`copilot` and
-`codex` respectively); **Done** is not.
+Default board: **To Do**, **In Progress**, and **Code Review** are
+dispatch-enabled (`copilot`, `codex`, `codex` respectively); **Done** is not.
 
-- Create a card in **Done** (non-dispatch), then move it to **To Do** (or **Doing**).
+- Create a card in **Done** (non-dispatch), then move it to **To Do** (or **In Progress**).
 - Confirm:
   - the card lands in the target column;
   - a new pane is split and the configured agent starts in it;

@@ -146,7 +146,7 @@ Subcommands are parsed with `clap`:
 |---|---|
 | `tui` | Launch the interactive terminal UI (press `q` to quit). |
 | `open [target]` | Summon/focus the board overlay; with `target`, open it in the Windows default handler. |
-| `card add <title> [--column todo]` | Add a card. |
+| `card add <title> [--column todo] [--target-agent <agent>]` | Add a card. `--target-agent` overrides the column's dispatch agent, and `--pre-command <cmd>` runs a command in the pane before the agent starts. |
 | `card add-from-pane [title] [--column todo]` | Add a card from the invoking pane, defaulting the title to the pane title (or cwd) and storing its `pane_id`/agent. |
 | `card focus <id>` | Focus the pane linked to a card (errors if unlinked or the pane is gone). |
 | `card refresh` | Re-query Herdr and clear stale `pane_id`/`agent_name` associations. |
@@ -159,12 +159,13 @@ Subcommands are parsed with `clap`:
 
 Each column carries a `dispatch_enabled` flag and an optional `dispatch` config
 (the `DispatchConfig` struct: an `agent` kind such as `codex`/`claude`/`copilot`,
-plus an optional `prompt` template). The default board ships three columns:
+plus an optional `prompt` template). The default board ships four columns:
 
 | Column | `dispatch_enabled` | Configured agent |
 |---|---|---|
 | To Do (`todo`) | true | `copilot` |
-| Doing (`doing`) | true | `codex` |
+| In Progress (`in-progress`) | true | `codex` |
+| Code Review (`code-review`) | true | `codex` |
 | Done (`done`) | false | — |
 
 Moving a card into a dispatch-enabled column with a non-empty configured `agent`:

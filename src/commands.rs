@@ -78,7 +78,7 @@ fn open_in_shell(target: &str) -> Result<()> {
 /// `card`: add/list/move/remove board cards persisted to local state.
 pub fn card(cmd: CardCommand) -> Result<()> {
     match cmd {
-        CardCommand::Add { title, column, target_agent } => {
+        CardCommand::Add { title, column, target_agent, pre_command } => {
             let mut board = state::load()?;
             let order = board.next_order_in_column(&column);
             let ts = now()?;
@@ -90,7 +90,7 @@ pub fn card(cmd: CardCommand) -> Result<()> {
                 pane_id: None,
                 agent_name: None,
                 target_agent,
-                pre_command: None,
+                        pre_command,
                 description: String::new(),
                 created_at: ts,
                 updated_at: ts,
@@ -525,7 +525,9 @@ mod tests {
                 dispatch: Some(DispatchConfig {
                     agent: "copilot".into(),
                     prompt: Some("Act on: {title} / {description}".into()),
-                }),
+                                    split_direction: None,
+                                    pre_command: None,
+                                }),
                 order: 0,
             },
             Column {
