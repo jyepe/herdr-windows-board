@@ -44,8 +44,8 @@ A brand-new board (no pre-existing `board-state.json`) has four columns:
 
 Columns carry an optional `dispatch` config (`agent`, `prompt` template,
 `split_direction`, `pre_command`). A card may also carry a `target_agent`
-(overrides the column's agent) and a `pre_command` (command run in the pane
-before the agent starts).
+(overrides the column's agent) and a `pre_command` (overrides the column's
+`pre_command`; the command is run in the pane before the agent starts).
 
 ## CLI
 
@@ -70,8 +70,10 @@ non-empty (or whose card has a `target_agent`):
 1. Moves the card and persists state.
 2. Reuses the card's existing live `pane_id`, otherwise splits a new pane
    (`down` by default, or `tab`, or the column's `split_direction`).
-3. Runs the card/column `pre_command` in the pane (before the agent starts), if set.
-4. Starts the agent (`herdr agent start --kind <agent> --pane <pane>`).
+3. Runs the card's `pre_command` (falling back to the column's) in the pane,
+   before the agent starts, if set.
+4. Starts the agent (`herdr agent start --kind <agent> --pane <pane> --timeout 30000`),
+   waiting for a freshly split pane to reach an available shell prompt first.
 5. Prompts the agent with the card title + description, or the `prompt` template
    with `{title}` / `{description}` substituted. If the agent is still
    initializing, the prompt is deferred but the link is recorded.
