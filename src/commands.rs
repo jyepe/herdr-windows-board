@@ -371,11 +371,20 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
             _ => Action::Plain,
         };
 
-        // Capture the card links (title/description/pane) before mutation.
-        let (title, description, existing_pane, target_agent) = match board.card(id) {
-            Some(c) => (c.title.clone(), c.description.clone(), c.pane_id.clone(), c.target_agent.clone()),
-            None => bail!("card {id:?} not found"),
-        };
+        // Capture the card links (title/description/pane/agent/pre-command) before
+        // mutation. The card's own `pre_command` overrides the column's, mirroring
+        // how `target_agent` overrides the column's `agent`.
+        let (title, description, existing_pane, target_agent, card_pre_command) =
+            match board.card(id) {
+                Some(c) => (
+                    c.title.clone(),
+                    c.description.clone(),
+                    c.pane_id.clone(),
+                    c.target_agent.clone(),
+                    c.pre_command.clone(),
+                ),
+                None => bail!("card {id:?} not found"),
+            };
 
         // Move the card.
         let order = board.next_order_in_column(column);
@@ -392,7 +401,7 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
             mut kind,
             prompt_template,
             split_direction,
-            pre_command,
+            pre_command: col_pre_command,
         } = action else {
             return Ok(format!("moved {id} to '{column}'"));
         };
@@ -402,6 +411,12 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
                 kind = ta.trim().to_string();
             }
         }
+
+        // A card-level `pre_command` takes precedence over the column's.
+        let pre_command = match card_pre_command {
+            Some(c) if !c.trim().is_empty() => Some(c),
+            _ => col_pre_command,
+        };
 
         // Reuse the card's existing pane if it is still live; otherwise split a new
         // pane rooted at the current tab.
@@ -451,6 +466,13 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
                         "moved {id} to '{column}'; dispatch skipped (pre-command failed: {err:#})"
                     ));
                 }
+                // `run_in_pane` (`herdr pane run`) is fire-and-forget: it types the
+                // command + Enter and returns immediately, without waiting for the
+                // shell to actually finish executing it. Without a brief pause here,
+                // `agent_start` below can race ahead and launch the agent before the
+                // pre-command (e.g. an env-var override for provider/model) has been
+                // committed by the shell, silently corrupting or dropping it.
+                std::thread::sleep(std::time::Duration::from_millis(1500));
             }
         }
 
@@ -581,6 +603,30 @@ mod tests {
         let status = move_card_dispatch(&mut board, &id, "dispatch").unwrap();
         assert!(status.contains("in pane p-linked"), "status: {status}");
         assert_eq!(board.card(&id).unwrap().pane_id.as_deref(), Some("p-linked"));
+    }
+
+    #[test]
+    fn card_pre_command_overrides_column_and_runs() {
+        let _fake = FakeHerdr::new();
+        _fake.write("pane-list.json", test_support::panes_envelope(&[]));
+        _fake.write("pane-split.json", test_support::pane_envelope("p-new"));
+
+        let mut board = board_with_columns();
+        let id = board.add_card("env me".into(), "plain");
+        board.card_mut(&id).unwrap().pre_command =
+            Some("changeprovider; $env:COPILOT_MODEL = \"x\"".into());
+
+        let status = move_card_dispatch(&mut board, &id, "dispatch").unwrap();
+        assert!(status.contains("started copilot agent"), "status: {status}");
+
+        // The fake records the `pane run` invocation; the card-level pre-command
+        // (not the absent column one) must be what was typed into the pane.
+        let ran = std::fs::read_to_string(_fake.path("pane-run-args.txt"))
+            .expect("pre_command should have been run in the pane");
+        assert!(
+            ran.contains("$env:COPILOT_MODEL"),
+            "expected card pre_command to run, got: {ran}"
+        );
     }
 
     #[test]

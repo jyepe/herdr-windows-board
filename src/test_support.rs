@@ -140,7 +140,12 @@ exit /b 1
 if "%2"=="list" goto pane_list
 if "%2"=="current" goto pane_current
 if "%2"=="split" goto pane_split
+if "%2"=="run" goto pane_run
 if "%2"=="close" exit /b 0
+exit /b 0
+
+:pane_run
+> "%DIR%pane-run-args.txt" echo %*
 exit /b 0
 
 :pane_list
