@@ -466,13 +466,10 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
                         "moved {id} to '{column}'; dispatch skipped (pre-command failed: {err:#})"
                     ));
                 }
-                // `run_in_pane` (`herdr pane run`) is fire-and-forget: it types the
-                // command + Enter and returns immediately, without waiting for the
-                // shell to actually finish executing it. Without a brief pause here,
-                // `agent_start` below can race ahead and launch the agent before the
-                // pre-command (e.g. an env-var override for provider/model) has been
-                // committed by the shell, silently corrupting or dropping it.
-                std::thread::sleep(std::time::Duration::from_millis(1500));
+                // No artificial delay is needed here: `agent_start` passes
+                // `--timeout` so Herdr waits for the pane to become an available
+                // shell (i.e. until the pre-command above has finished) before it
+                // types the agent command into the pane.
             }
         }
 

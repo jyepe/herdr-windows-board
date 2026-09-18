@@ -329,8 +329,14 @@ pub fn split_pane(source: Option<&str>, direction: &str) -> Result<Pane> {
 /// an error so callers can persist the pane/agent link and skip the prompt.
 pub fn agent_start(name: &str, kind: &str, pane_id: &str) -> Result<AgentStart> {
     let bin = herdr_bin();
+    // Pass `--timeout` so Herdr waits for the pane to become an available shell
+    // before launching. A freshly split pane is not yet at its interactive
+    // prompt, and without the wait `agent start` rejects it immediately with
+    // `agent_pane_busy` ("not an available shell").
     let output = Command::new(&bin)
-        .args(["agent", "start", name, "--kind", kind, "--pane", pane_id])
+        .args([
+            "agent", "start", name, "--kind", kind, "--pane", pane_id, "--timeout", "30000",
+        ])
         .output()
         .with_context(|| {
             if std::env::var("HERDR_BIN_PATH").is_ok() {
