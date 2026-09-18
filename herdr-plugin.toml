@@ -1,0 +1,48 @@
+# herdr-plugin.toml — manifest for the herdr-windows-board plugin.
+#
+# A Windows-first board plugin for Herdr. Cards persisted to local user state,
+# with a ratatui terminal UI, an idempotent `open` action, a `doctor`
+# prerequisite check, and column-triggered agent dispatch (moving a card into a
+# dispatch-enabled column starts a configured agent in a split pane).
+#
+# Metadata notes (per Herdr's plugin docs):
+#   * Top-level `id`, `name`, `version`, and `min_herdr_version` are required
+#     and present below. `description` is recommended for discoverability and
+#     present below.
+#   * Herdr's plugin manifest schema has no `author` or `repository` field —
+#     provenance is conveyed by the hosting Git repository (and its `herdr-plugin`
+#     GitHub topic), so none is added here rather than inventing a field.
+
+id = "local.windows-board"
+name = "Windows Board"
+version = "0.1.0"
+description = "Windows-first kanban-style board plugin for Herdr."
+min_herdr_version = "0.9.0"
+platforms = ["windows"]
+
+# Build the `windows-board` binary at install time (idempotent: cargo no-ops
+# when nothing changed). Produces target/release/windows-board.exe.
+[[build]]
+command = ["cargo", "build", "--release"]
+
+# The interactive board TUI, spawned by Herdr in an overlay pane.
+[[panes]]
+id = "board"
+title = "Windows Board"
+placement = "overlay"
+command = ["target/release/windows-board.exe", "tui"]
+
+# Summon the board — bind this to a key via a [[keys.command]] block in
+# ~/.config/herdr/config.toml. The launcher is idempotent (open-or-focus).
+[[actions]]
+id = "open-board"
+title = "Open Windows Board"
+description = "Open the windows-board TUI as an overlay pane."
+command = ["target/release/windows-board.exe", "open"]
+
+# Reconcile card pane/agent associations against the live Herdr session.
+[[actions]]
+id = "refresh-board"
+title = "Refresh Windows Board"
+description = "Clear stale pane/agent associations on board cards."
+command = ["target/release/windows-board.exe", "card", "refresh"]
