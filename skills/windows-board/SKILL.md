@@ -18,8 +18,13 @@ skill covers the board plugin's own CLI and behavior.
 - Binary: `windows-board` (built as `target/release/windows-board.exe`).
 - State directory resolution (highest precedence first):
   1. `HERDR_PLUGIN_STATE_DIR` (Herdr injects this per-plugin when run under Herdr).
-  2. Platform local-data dir: `%LOCALAPPDATA%\windows\herdr-windows-board\data`.
+  2. Herdr's per-plugin directory, derived even when the env var is absent:
+     `%LOCALAPPDATA%\herdr\plugins\local.windows-board`.
   - The state file is always named `board-state.json`.
+  - A legacy copy at `%LOCALAPPDATA%\windows\herdr-windows-board\data` is
+    migrated into the canonical directory automatically if it is missing there.
+- The TUI live-reloads from disk, so cards added/moved by an agent in another
+  pane appear without restarting.
 - Herdr binary resolution: `HERDR_BIN_PATH` if set, else `herdr` on `PATH`.
 - Invoking-pane detection reads `HERDR_PANE_ID`, then `herdr pane current`, then
   `HERDR_PLUGIN_CONTEXT_JSON`.

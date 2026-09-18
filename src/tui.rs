@@ -8,7 +8,11 @@
 //! Every action is reachable by keyboard alone; on-screen buttons are a
 //! mouse-only convenience layered on top of the same actions.
 
-use std::{io, time::Duration};
+use std::{
+    io,
+    path::PathBuf,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -75,6 +79,10 @@ enum Mode {
 /// Application state for the interactive loop.
 struct App {
     board: BoardState,
+    /// Canonical state file the board reads/writes, used for live reload.
+    state_path: PathBuf,
+    /// Modification time of the last board read, to detect external changes.
+    last_modified: Option<SystemTime>,
     /// Id of the selected card, when one is selected.
     selected_card: Option<String>,
     /// Slug of the focused column (target for new cards).
@@ -86,7 +94,7 @@ struct App {
 }
 
 impl App {
-    fn new(board: BoardState) -> Self {
+    fn new(board: BoardState, state_path: PathBuf) -> Self {
         let columns = board.ordered_columns();
         let focused_column = columns
             .first()
@@ -98,6 +106,8 @@ impl App {
             .map(|c| c.id.clone());
         Self {
             board,
+            state_path,
+            last_modified: None,
             selected_card,
             focused_column,
             mode: Mode::Normal,
@@ -121,10 +131,77 @@ impl App {
 
     /// Persist the board, capturing any error as a non-fatal status message.
     fn persist(&mut self) {
-        if let Err(err) = state::save(&mut self.board) {
-            self.status = Some(format!("save failed: {err:#}"));
+            match state::save(&mut self.board) {
+                Ok(_) => {}
+                Err(err) => {
+                    let msg = format!("{err:#}");
+                    if msg.contains("concurrent modification") {
+                        // An external writer (e.g. an agent) advanced the file
+                        // between our last reload and this save. Adopt the latest
+                        // content so the next action lands cleanly.
+                        self.apply_latest();
+                        self.status =
+                            Some("board changed externally; retry your action".to_string());
+                    } else {
+                        self.status = Some(format!("save failed: {msg}"));
+                    }
+                }
+            }
         }
-    }
+
+        /// Re-read the on-disk state if its modification time changed since the
+        /// last read, merging external edits (an agent adding/moving cards) into
+        /// the live board while preserving focus and selection. A missing file is
+        /// treated as "no change" so an unreadable `board-state.json` never
+        /// disrupts the session.
+        fn reload_if_changed(&mut self) {
+            let Ok(meta) = std::fs::metadata(&self.state_path) else {
+                return;
+            };
+            let Ok(modified) = meta.modified() else {
+                return;
+            };
+            if self.last_modified == Some(modified) {
+                return;
+            }
+            self.last_modified = Some(modified);
+            self.apply_latest();
+        }
+
+        /// Force-reload the board from disk and reconcile selection state.
+        fn apply_latest(&mut self) {
+            match state::load_file(&self.state_path) {
+                Ok(latest) => {
+                    self.board = latest;
+                    self.reconcile_selection();
+                }
+                // Transient (corrupt/partial read during an atomic rename).
+                Err(_) => {}
+            }
+        }
+
+        /// Re-select a valid card/column after the board content changed.
+        fn reconcile_selection(&mut self) {
+            let columns = self.board.ordered_columns();
+            if !columns.iter().any(|c| c.slug == self.focused_column) {
+                self.focused_column = columns
+                    .first()
+                    .map(|c| c.slug.clone())
+                    .unwrap_or_default();
+            }
+            let selected_exists = self
+                .selected_card
+                .as_ref()
+                .map(|id| self.board.card(id).is_some())
+                .unwrap_or(false);
+            if !selected_exists {
+                self.selected_card = self
+                    .board
+                    .cards_in_column(&self.focused_column)
+                    .first()
+                    .map(|c| c.id.clone());
+            }
+        }
 
     /// Move focus to an adjacent column, re-selecting its first card.
     fn move_focus(&mut self, step: i64) {
@@ -656,8 +733,9 @@ fn install_panic_hook() {
 }
 
 pub fn run() -> Result<()> {
-    let board = state::load()?;
-    let mut app = App::new(board);
+    let state_path = state::state_path()?;
+    let board = state::load_file(&state_path)?;
+    let mut app = App::new(board, state_path);
 
     install_panic_hook();
     enable_raw_mode()?;
@@ -669,6 +747,8 @@ pub fn run() -> Result<()> {
     let _ = execute!(io::stdout(), Show);
 
     loop {
+        app.reload_if_changed();
+
         let mut hitmap = Hitmap::default();
         terminal.draw(|f| {
             hitmap = app.draw(f);

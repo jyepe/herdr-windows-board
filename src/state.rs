@@ -2,9 +2,10 @@
 //!
 //! Cards, columns, and their ordering are stored in a single JSON file inside
 //! the directory named by the `HERDR_PLUGIN_STATE_DIR` environment variable.
-//! When that variable is unset (as in standalone development or testing), the
-//! platform local-data directory is used instead
-//! ([`directories::ProjectDirs::data_local_dir`]).
+//! When that variable is unset (as in an agent pane, where Herdr does not
+//! inject plugin env vars), the board falls back to the same per-plugin
+//! directory Herdr would use (`%LOCALAPPDATA%\herdr\plugins\local.windows-board`)
+//! so both read and write one canonical file.
 //!
 //! Persistence is:
 //! * **atomic** — the file is first written to a uniquely-named temporary file
@@ -30,6 +31,8 @@ use serde::{Deserialize, Serialize};
 pub const STATE_DIR_ENV: &str = "HERDR_PLUGIN_STATE_DIR";
 /// Name of the state file within the state directory.
 pub const STATE_FILE: &str = "board-state.json";
+/// Plugin id used to namespace the state directory under Herdr.
+pub const PLUGIN_ID: &str = "local.windows-board";
 
 /// A single card on the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,7 +297,10 @@ pub fn default_columns() -> Vec<Column> {
         }
 
 /// Resolve the state directory, honoring `HERDR_PLUGIN_STATE_DIR` when set and
-/// falling back to the platform local-data directory otherwise.
+/// otherwise falling back to the same per-plugin directory Herdr uses for the
+/// plugin's runtime (`%LOCALAPPDATA%\herdr\plugins\local.windows-board`). This
+/// keeps agent panes (which Herdr does not inject the env var into) and plugin
+/// runtime commands reading and writing the same file.
 pub fn state_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var(STATE_DIR_ENV) {
         let dir = dir.trim();
@@ -302,9 +308,63 @@ pub fn state_dir() -> Result<PathBuf> {
             return Ok(PathBuf::from(dir));
         }
     }
-    let dirs = directories::ProjectDirs::from("local", "windows", "herdr-windows-board")
-        .context("failed to resolve project directories")?;
-    Ok(dirs.data_local_dir().to_path_buf())
+    let dir = herdr_plugin_state_dir()?;
+    migrate_legacy_state(&dir);
+    Ok(dir)
+}
+
+/// Compute Herdr's per-plugin state directory for this plugin:
+/// `<local-data-dir>\herdr\plugins\<plugin-id>`, mirroring Herdr's own formula
+/// so the board has a single canonical location whether or not Herdr injects
+/// `HERDR_PLUGIN_STATE_DIR`.
+fn herdr_plugin_state_dir() -> Result<PathBuf> {
+    let local = match std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
+        Some(v) => PathBuf::from(v),
+        None => {
+            let home = std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .context("failed to resolve local data directory (set LOCALAPPDATA)")?;
+            PathBuf::from(home).join("AppData").join("Local")
+        }
+    };
+    Ok(local.join("herdr").join("plugins").join(PLUGIN_ID))
+}
+
+/// Directory used before state was unified under Herdr's plugin directory.
+/// Kept so a first run can migrate any pre-existing cards into the canonical
+/// location instead of silently starting from an empty board.
+fn legacy_state_dir() -> Option<PathBuf> {
+    directories::ProjectDirs::from("local", "windows", "herdr-windows-board")
+        .map(|d| d.data_local_dir().to_path_buf())
+}
+
+/// One-time migration: if the canonical state file does not exist yet but a
+/// legacy copy does, copy it into place so existing cards are not lost. Cheap
+/// and idempotent (runs on every fallback resolution, but only copies when the
+/// canonical file is absent).
+fn migrate_legacy_state(dir: &Path) {
+    let target = dir.join(STATE_FILE);
+    if target.exists() {
+        return;
+    }
+    let Some(legacy) = legacy_state_dir() else {
+        return;
+    };
+    let legacy_file = legacy.join(STATE_FILE);
+    if !legacy_file.exists() {
+        return;
+    }
+    if let Err(err) = fs::create_dir_all(dir) {
+        eprintln!("windows-board: failed to create state dir {}: {err}", dir.display());
+        return;
+    }
+    if let Err(err) = fs::copy(&legacy_file, &target) {
+        eprintln!(
+            "windows-board: failed to migrate legacy state {} -> {}: {err}",
+            legacy_file.display(),
+            target.display()
+        );
+    }
 }
 
 /// Resolve the state file path, creating its parent directory when necessary.
@@ -330,12 +390,18 @@ pub fn save(state: &mut BoardState) -> Result<u64> {
 /// Load the board from an explicit directory (kept separate so tests can point
 /// at a temporary directory without touching process-wide environment state).
 fn load_from(dir: &Path) -> Result<BoardState> {
-    let path = dir.join(STATE_FILE);
+    load_file(&dir.join(STATE_FILE))
+}
+
+/// Load the board from an explicit state file path (rather than a containing
+/// directory), returning a default board when the file does not exist. Used by
+/// the TUI to re-read the canonical file directly for live reload.
+pub fn load_file(path: &Path) -> Result<BoardState> {
     if !path.exists() {
         return Ok(BoardState::default());
     }
     let raw =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     serde_json::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
 }
 
@@ -600,6 +666,20 @@ mod tests {
         std::env::remove_var(STATE_DIR_ENV);
         assert_eq!(resolved, custom);
     }
+
+        #[test]
+        fn state_dir_fallback_matches_herdr_plugin_dir() {
+            std::env::remove_var(STATE_DIR_ENV);
+            let local = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var_os("USERPROFILE").unwrap())
+                        .join("AppData")
+                        .join("Local")
+                });
+            let resolved = state_dir().unwrap();
+            assert_eq!(resolved, local.join("herdr").join("plugins").join(PLUGIN_ID));
+        }
 
         #[test]
         fn add_card_appends_to_column_order() {

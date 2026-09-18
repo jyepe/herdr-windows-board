@@ -112,10 +112,13 @@ The state **directory** resolves as follows:
 1. If the `HERDR_PLUGIN_STATE_DIR` environment variable is set and non-empty,
    that directory is used (Herdr injects it per-plugin when the plugin runs under
    Herdr).
-2. Otherwise, the platform local-data directory is used via
-   `directories::ProjectDirs::from("local", "windows", "herdr-windows-board")`
-   — on Windows this is typically under
-   `%LOCALAPPDATA%\windows\herdr-windows-board\data`.
+2. Otherwise, the same per-plugin directory Herdr would use is derived, so agent
+   panes and plugin runtime commands always share one canonical file:
+   `%LOCALAPPDATA%\herdr\plugins\local.windows-board`.
+
+A copy from the older pre-unification location
+(`%LOCALAPPDATA%\windows\herdr-windows-board\data`) is migrated into the
+canonical directory automatically on first use if the canonical file is absent.
 
 To find the exact path in your environment, run `cargo run -- doctor`.
 
