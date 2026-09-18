@@ -29,7 +29,7 @@ command = ["cargo", "build", "--release"]
 [[panes]]
 id = "board"
 title = "Windows Board"
-placement = "overlay"
+placement = "tab"
 command = ["target/release/windows-board.exe", "tui"]
 
 # Summon the board — bind this to a key via a [[keys.command]] block in

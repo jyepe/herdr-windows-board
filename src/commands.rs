@@ -78,24 +78,26 @@ fn open_in_shell(target: &str) -> Result<()> {
 /// `card`: add/list/move/remove board cards persisted to local state.
 pub fn card(cmd: CardCommand) -> Result<()> {
     match cmd {
-        CardCommand::Add { title, column } => {
+        CardCommand::Add { title, column, target_agent } => {
             let mut board = state::load()?;
-                    let order = board.next_order_in_column(&column);
-                    let ts = now()?;
-                    board.cards.push(Card {
-                        id: state::next_id(),
-                        title,
-                        column: column.clone(),
-                        order,
-                        pane_id: None,
-                        agent_name: None,
-                                description: String::new(),
-                                created_at: ts,
-                                updated_at: ts,
-                            });
-                            state::save(&mut board)?;
-                            println!("added card to '{column}'");
-                        }
+            let order = board.next_order_in_column(&column);
+            let ts = now()?;
+            board.cards.push(Card {
+                id: state::next_id(),
+                title,
+                column: column.clone(),
+                order,
+                pane_id: None,
+                agent_name: None,
+                target_agent,
+                pre_command: None,
+                description: String::new(),
+                created_at: ts,
+                updated_at: ts,
+            });
+            state::save(&mut board)?;
+            println!("added card to '{column}'");
+        }
                 CardCommand::AddFromPane { title, column } => {
                     let mut board = state::load()?;
                     let (resolved_title, pane_id, agent_name) = match invoking_pane() {
@@ -125,10 +127,12 @@ pub fn card(cmd: CardCommand) -> Result<()> {
                         order,
                         pane_id,
                         agent_name,
-                                            description: String::new(),
-                                            created_at: ts,
-                                            updated_at: ts,
-                                        });
+                        target_agent: None,
+                        pre_command: None,
+                        description: String::new(),
+                        created_at: ts,
+                        updated_at: ts,
+                    });
                     state::save(&mut board)?;
                     println!("added card to '{column}'");
                 }
@@ -346,7 +350,12 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
         // mutating the board, to avoid overlapping borrows.
         enum Action {
             Plain,
-            Dispatch { kind: String, prompt_template: Option<String> },
+            Dispatch {
+                kind: String,
+                prompt_template: Option<String>,
+                split_direction: Option<String>,
+                pre_command: Option<String>,
+            },
         }
 
         let action = match board.columns.iter().find(|c| c.slug == column) {
@@ -354,6 +363,8 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
                 Some(d) if !d.agent.is_empty() => Action::Dispatch {
                     kind: d.agent.clone(),
                     prompt_template: d.prompt.clone(),
+                    split_direction: d.split_direction.clone(),
+                    pre_command: d.pre_command.clone(),
                 },
                 _ => Action::Plain,
             },
@@ -361,12 +372,8 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
         };
 
         // Capture the card links (title/description/pane) before mutation.
-        let (title, description, existing_pane) = match board.card(id) {
-            Some(c) => (
-                c.title.clone(),
-                c.description.clone(),
-                c.pane_id.clone(),
-            ),
+        let (title, description, existing_pane, target_agent) = match board.card(id) {
+            Some(c) => (c.title.clone(), c.description.clone(), c.pane_id.clone(), c.target_agent.clone()),
             None => bail!("card {id:?} not found"),
         };
 
@@ -381,9 +388,20 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
         card.order = order;
         card.updated_at = now()?;
 
-        let Action::Dispatch { kind, prompt_template } = action else {
+        let Action::Dispatch {
+            mut kind,
+            prompt_template,
+            split_direction,
+            pre_command,
+        } = action else {
             return Ok(format!("moved {id} to '{column}'"));
         };
+
+        if let Some(ta) = target_agent {
+            if !ta.trim().is_empty() {
+                kind = ta.trim().to_string();
+            }
+        }
 
         // Reuse the card's existing pane if it is still live; otherwise split a new
         // pane rooted at the current tab.
@@ -401,15 +419,40 @@ pub fn move_card_dispatch(board: &mut BoardState, id: &str, column: &str) -> Res
 
         let pane_id = match live_pane {
             Some(pid) => pid.to_string(),
-            None => match herdr_cli::split_pane(None, "down") {
-                Ok(pane) => pane.pane_id,
-                Err(err) => {
-                    return Ok(format!(
-                        "moved {id} to '{column}'; dispatch skipped (pane split failed: {err:#})"
-                    ))
+            None => {
+                let is_tab = split_direction.as_deref() == Some("tab");
+                if is_tab {
+                    match herdr_cli::create_tab() {
+                        Ok(pane) => pane.pane_id,
+                        Err(err) => {
+                            return Ok(format!(
+                                "moved {id} to '{column}'; dispatch skipped (tab create failed: {err:#})"
+                            ))
+                        }
+                    }
+                } else {
+                    let direction = split_direction.as_deref().unwrap_or("down");
+                    match herdr_cli::split_pane(None, direction) {
+                        Ok(pane) => pane.pane_id,
+                        Err(err) => {
+                            return Ok(format!(
+                                "moved {id} to '{column}'; dispatch skipped (pane split failed: {err:#})"
+                            ))
+                        }
+                    }
                 }
-            },
+            }
         };
+
+        if let Some(cmd) = pre_command {
+            if !cmd.trim().is_empty() {
+                if let Err(err) = herdr_cli::run_in_pane(&pane_id, &cmd) {
+                    return Ok(format!(
+                        "moved {id} to '{column}'; dispatch skipped (pre-command failed: {err:#})"
+                    ));
+                }
+            }
+        }
 
         match herdr_cli::agent_start(&kind, &kind, &pane_id) {
             Ok(herdr_cli::AgentStart::Ready) => {

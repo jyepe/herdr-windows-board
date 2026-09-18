@@ -44,6 +44,9 @@ pub enum CardCommand {
         /// Column to place the card in.
         #[arg(long, default_value = "todo")]
         column: String,
+        /// Optional target agent to dispatch (overrides the column's default).
+        #[arg(long)]
+        target_agent: Option<String>,
     },
         /// Add a card from the currently focused/invoking pane.
         AddFromPane {

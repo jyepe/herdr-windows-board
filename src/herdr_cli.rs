@@ -292,6 +292,19 @@ pub fn open_plugin_pane(plugin: &str, entrypoint: &str, placement: &str) -> Resu
     .map(|_| ())
 }
 
+#[derive(Deserialize)]
+struct TabCreateResult {
+    root_pane: Pane,
+    tab: Tab,
+}
+
+/// Create a new tab and return its root pane.
+pub fn create_tab() -> Result<Pane> {
+    let args: Vec<&str> = vec!["tab", "create", "--no-focus"];
+    let envelope = run_json::<Envelope<TabCreateResult>>(&args)?;
+    Ok(envelope.result.root_pane)
+}
+
 /// Split the panes of the current workspace/tab, returning the new pane.
 ///
 /// When `source` is given, the split is rooted at that pane's tab; otherwise
@@ -349,6 +362,13 @@ pub fn agent_start(name: &str, kind: &str, pane_id: &str) -> Result<AgentStart> 
     bail!(
         "herdr agent start {name} --kind {kind} --pane {pane_id} exited with code {code} ({detail})"
     )
+}
+
+/// Execute a shell command inside a pane (uses `herdr pane run`).
+pub fn run_in_pane(pane_id: &str, command: &str) -> Result<()> {
+    // We pass the entire command string as a single argument so Herdr executes it
+    // exactly as written.
+    run(&["pane", "run", pane_id, command]).map(|_| ())
 }
 
 /// Send a fire-and-forget prompt to `target` (a live agent name or the pane id

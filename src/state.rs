@@ -47,6 +47,12 @@ pub struct Card {
     /// Optional associated agent name.
     #[serde(default)]
     pub agent_name: Option<String>,
+    /// Optional requested agent to spawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_agent: Option<String>,
+    /// Optional command to run in the pane *before* starting the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_command: Option<String>,
         /// Optional long-form description used as dispatch prompt content.
         #[serde(default)]
         pub description: String,
@@ -71,6 +77,12 @@ pub struct DispatchConfig {
     /// description are submitted verbatim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// Optional direction/placement. If "tab", creates a new tab. Otherwise splits current tab in this direction (e.g. "down").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_direction: Option<String>,
+    /// Optional command to run in the pane *before* starting the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pre_command: Option<String>,
 }
 
 /// A column on the board.
@@ -177,10 +189,12 @@ impl BoardState {
                 order,
                 pane_id: None,
                 agent_name: None,
-                                description: String::new(),
-                                created_at: ts,
-                                updated_at: ts,
-                            });
+                target_agent: None,
+                pre_command: None,
+                description: String::new(),
+                created_at: ts,
+                updated_at: ts,
+            });
             id
         }
 
@@ -240,6 +254,8 @@ pub fn default_columns() -> Vec<Column> {
             dispatch: Some(DispatchConfig {
                 agent: "copilot".to_string(),
                 prompt: None,
+                split_direction: None,
+                pre_command: None,
             }),
             order: 0,
         },
@@ -250,6 +266,8 @@ pub fn default_columns() -> Vec<Column> {
             dispatch: Some(DispatchConfig {
                 agent: "codex".to_string(),
                 prompt: None,
+                split_direction: None,
+                pre_command: None,
             }),
             order: 1,
         },
